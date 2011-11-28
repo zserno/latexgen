@@ -10,5 +10,8 @@ by overriding the latex.tpl.php file.
 ## Installation
 ## Usage
 ## Authors
+Original code for Drupal 5 was written by markfoodyburton. Source: http://drupal.org/project/latexgen.  
+Drupal 6 port and new features were developed by zserno.
 ## License
+GPL2
 
