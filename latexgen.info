@@ -1,0 +1,4 @@
+name = latexgen
+description = Enables users generate latex from nodes.
+core = 6.x
+

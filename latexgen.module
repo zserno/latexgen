@@ -1,0 +1,174 @@
+<?php
+/**
+ * @file
+ * Latex file generator. Based on markfoodyburton's latexgen module.
+ * Source: http://drupal.org/project/latexgen.
+ */
+
+/**
+ * Implementation of hook_init().
+ */
+function latexgen_init() {
+  mb_substitute_character("none");
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function latexgen_menu() {
+  $items = array();
+
+  $items['node/%/%/latex'] = array(
+    'title' => 'View as PDF',
+    'page callback' => 'latexgen_node_controller',
+    'page arguments' => array(1, 2),
+    'access arguments' => array('access content as PDF'),
+    'type' => MENU_CALLBACK
+  );
+
+  $items['latexgen/%/%'] = array(
+    'title' => 'View as PDF',
+    'page callback' => 'latexgen_node_controller',
+    'page arguments' => array(1, 2),
+    'access arguments' => array('access content as PDF'),
+    'type' => MENU_CALLBACK
+  );
+
+  return $items;
+}
+
+/**
+ * Implementation of hook_help().
+ */
+function latexgen_help($path, $arg) {
+  switch ($section) {
+    case 'admin/help#latexgen':
+      return t('Generate PDF (via latex) from nodes.');
+  }
+}
+
+/**
+ * Implementation of hook_perm().
+ */
+function latexgen_perm() {
+  return array("access content as PDF");
+}
+
+/**
+ * Implementation of hook_link().
+ */
+function latexgen_link($type, $node = NULL, $teaser) {
+  $links = array();
+  if ($type == 'node' && $teaser === FALSE) {
+    if (user_access('access content as PDF') && (variable_get('latexgen_' . $node->type, 0) !== 0)) {
+      $links['latexgen_link'] = array(
+        'title' => t('Download PDF'),
+        'href' => "node/$node->nid/$node->vid/latex",
+        'attributes' => array('title' => t('Display a PDF version of this page.'))
+      );
+    }
+  }
+  return $links;
+}
+
+/**
+ * Implementation of hook_form_alter().
+ */
+function latexgen_form_alter(&$form, $form_state, $form_id) {
+  // Alter content type settings.
+  if ($form_id == 'node_type_form' && isset($form['identity']['type'])) {
+    $form['workflow']['latexgenfs'] = array(
+      '#type' => 'item',
+      '#title' => t('LaTeX'),
+      '#tree' => FALSE,
+    );
+    $form['workflow']['latexgenfs']['latexgen'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Show LaTeX link'),
+      '#default_value' => variable_get('latexgen_' . $form['#node_type']->type, 0),
+    );
+  }
+}
+
+/**
+ * Implements hook_theme().
+ */
+function latexgen_theme($existing, $type, $theme, $path) {
+  return array(
+    'latex' => array(
+      'arguments' => array('node' => NULL),
+      'template' => 'latex',
+    ),
+  );
+}
+
+/**
+ * Menu callback.
+ */
+function latexgen_node_controller($nid, $revision) {
+  $node = node_load($nid, $revision);
+  if (variable_get('latexgen_' . $node->type, 0) === 0) {
+    drupal_set_message(t('LaTeX generation is not enabled for this content type.'));
+    return FALSE;
+  }
+  $tex = latexgen_node($node);
+
+  if (function_exists('transliteration_clean_filename')) {
+    $filename = transliteration_clean_filename($node->title);
+  }
+  else {
+    $filename = $node->title;
+  }
+  latexgen_generate_file($tex, $filename);
+}
+
+/**
+ * Renders a node as a PDF file.
+ */
+function latexgen_node($node) {
+  $output = theme('latex', $node);
+  // Filter out some non-printable characters.
+  // You might need to do additional preprocessing.
+  return preg_replace('/[^\x{0000}-\x{206F}]+/u', '', $output);
+}
+
+/**
+ * Outputs a PDF file.
+ */
+function latexgen_generate_file(&$data, $filename) {
+  $modpath = getcwd() . '/' . drupal_get_path('module', 'latexgen');
+  $filesdir = getcwd() . '/' . file_directory_path();
+  $filename = strtr(strip_tags($filename), " .,?!&#", "_______");
+  $dir = file_directory_temp();
+  $fullfilename = file_create_filename($filename, $dir);
+  file_save_data($data, $fullfilename . ".tex", FILE_EXISTS_REPLACE);
+
+  $cmds = array(
+    //@TODO Make it optional through a settings screen.
+    "export TEXINPUTS=.:$modpath:$filesdir:;cd $dir;pdflatex $filename",
+    //"export TEXINPUTS=.:$modpath:$filesdir:;cd $dir;latex $filename",
+    //"export TEXINPUTS=.:$modpath:$filesdir:;cd $dir;dvips -t a4 $filename -o $filename.ps",
+    //"export TEXINPUTS=.:$modpath:$filesdir:;cd $dir;ps2pdf $filename.ps $filename.pdf",
+  );
+
+  foreach ($cmds as $cmd) {
+    $output=array();
+    $return_val=int;
+    exec($cmd, $output, $return_val);
+    if ($return_val) {
+      drupal_set_message(t("<hr>Command: " . $cmd . "<br />" . "return status:" . $return_val . "<br />" . implode("<br />\n", $output)));
+      print theme('page');
+      module_invoke_all('exit');
+      exit;
+    }
+  }
+  file_transfer($fullfilename . ".pdf", array(
+    'Content-Type: application/pdf',
+    'Content-Disposition: attachment; filename="' . $filename . '.pdf"',
+    'Content-Length: ' . filesize($fullfilename . '.pdf'),
+  ));
+
+  module_invoke_all('exit');
+  exit;
+}
+
